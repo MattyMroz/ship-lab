@@ -31,3 +31,11 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+      - id: probe
+        name: probe of the pre-push input
+        entry: python .hooks/probe.py
+        language: python
+        pass_filenames: false
+        always_run: true
+        verbose: true
+        stages: [pre-push]
