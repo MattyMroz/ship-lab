@@ -1,0 +1,39 @@
+name: Bot pull request
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  open:
+    name: Open a pull request as github-actions[bot]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BRANCH: docs/bot-note-${{ github.run_id }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Commit a note on a new branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          printf 'bot note %s\n' "$GITHUB_RUN_ID" >> lab/notes.txt
+          git add lab/notes.txt
+          printf 'docs(parser): add a bot note\n\nProblem:\n- the lab has no pull request from another author\n\nChange:\n- add a note as github-actions[bot], so the merge script meets a pull request of another author\n\nVerification:\n- git diff: 1 line added to lab/notes.txt\n' > "$RUNNER_TEMP/message"
+          git commit -q -F "$RUNNER_TEMP/message"
+          tail -n +3 "$RUNNER_TEMP/message" > "$RUNNER_TEMP/body"
+          git push -q origin "$BRANCH"
+
+      - name: Open the pull request
+        run: |
+          gh pr create --base main --head "$BRANCH" --title "docs(parser): add a bot note" --body-file "$RUNNER_TEMP/body"

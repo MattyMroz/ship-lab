@@ -1,0 +1,33 @@
+minimum_pre_commit_version: "4.0.0"
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+
+  - repo: local
+    hooks:
+      - id: commit-message
+        name: commit message meets the commit standard
+        entry: python .hooks/commit_message.py --scopes=parser,cli
+        language: python
+        stages: [commit-msg]
+      - id: commit-message-push
+        name: pushed commit messages meet the commit standard
+        entry: python .hooks/commit_message.py --scopes=parser,cli --pre-push
+        language: python
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: tests
+        name: unit tests
+        entry: python -m unittest discover -s tests
+        language: python
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
