@@ -515,12 +515,12 @@ def default_branch() -> str:
 
 
 def pre_push_input(stdin: str) -> str | None:
-    """Return the pre-push lines from stdin or from the PRE_COMMIT_* variables of prek, or None without input."""
+    """Return the pre-push lines from stdin or prek variables: empty under prek without a target, None without input."""
     if stdin.strip():
         return stdin
     to_ref: str = os.environ.get("PRE_COMMIT_TO_REF", "")
     if not to_ref:
-        return None
+        return "" if os.environ.get("PRE_COMMIT") == "1" else None
     branch: str = os.environ.get("PRE_COMMIT_REMOTE_BRANCH", "")
     if not branch:
         return ""
