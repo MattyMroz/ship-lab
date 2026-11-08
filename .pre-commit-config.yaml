@@ -9,6 +9,8 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+      - id: no-commit-to-branch
+        args: [--branch, main]
 
   - repo: local
     hooks:
@@ -20,6 +22,13 @@ repos:
       - id: commit-message-push
         name: pushed commit messages meet the commit standard
         entry: python .hooks/commit_message.py --scopes=parser,cli --pre-push
+        language: python
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: ship-push
+        name: pushed refs follow the change path
+        entry: python .hooks/push_check.py
         language: python
         pass_filenames: false
         always_run: true

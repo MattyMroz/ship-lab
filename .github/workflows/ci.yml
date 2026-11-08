@@ -89,6 +89,8 @@ jobs:
           exit "$failed"
 
       - name: Commit hooks
+        env:
+          SKIP: no-commit-to-branch
         run: prek run --all-files --show-diff-on-failure
 
   check:
