@@ -34,7 +34,7 @@ ZERO_SHA: Final[str] = "0" * 40
 DEFAULT_BRANCH: Final[str] = "main"
 """The default branch name when origin/HEAD is not set."""
 
-SKILL_HINT: Final[str] = "use the ship skill: load it and follow its path (worktree, branch, pull request, ship.py merge)"
+SKILL_HINT: Final[str] = "use the ship skill: load it and follow its path (branch, pull request, ship.py merge)"
 """The last line of every rejection, so an agent finds the rules of the change path."""
 
 # ── Input ─────────────────────────────────────────────────────────────────────
