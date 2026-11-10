@@ -64,3 +64,4 @@ p3 push 4 note
 p3 push 5 note
 p3 push 6 note
 p3 push 7 note
+p3 push 8 note
