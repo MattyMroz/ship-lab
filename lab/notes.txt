@@ -66,3 +66,4 @@ p3 push 6 note
 p3 push 7 note
 p3 push 8 note
 p3 push 9 note
+p3 push 10 note
