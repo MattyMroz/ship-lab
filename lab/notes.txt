@@ -60,3 +60,4 @@ p6 first note
 p6 second note
 p3 series 2 start note
 p3 push 101 note
+p3 push 102 note
