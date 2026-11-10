@@ -58,3 +58,4 @@ p1 second note
 p1 third note
 p6 first note
 p6 second note
+p3 series 2 start note
