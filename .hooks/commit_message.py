@@ -5,7 +5,6 @@ import os
 import re
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 from typing import Final
 
@@ -19,20 +18,11 @@ TYPES: Final[tuple[str, ...]] = (
 LABELS: Final[tuple[str, ...]] = ("Problem:", "Change:", "Verification:")
 """The section labels in their required order."""
 
-BOT_AUTHORS: Final[tuple[str, ...]] = ("dependabot[bot]",)
-"""Bot authors whose commits from GitHub are checked only for the header."""
-
 REPO_SCOPE: Final[str] = "repo"
 """The scope of a change that is not inside one part of the program, valid in every repository."""
 
 WORK_PREFIXES: Final[tuple[str, ...]] = ("fixup! ", "amend! ")
 """Header prefixes of work commits that the commit-msg hook lets through."""
-
-GITHUB_SEPARATOR: Final[str] = "---------"
-"""The line GitHub puts before the co-authors of a squash commit."""
-
-COAUTHOR_KEY: Final[str] = "Co-authored-by:"
-"""The trailer key of the co-authors that GitHub appends to a squash commit."""
 
 BREAKING_KEY: Final[str] = "BREAKING-CHANGE:"
 """The trailer key of a breaking change."""
@@ -61,8 +51,8 @@ FIELD_SEPARATOR: Final[str] = "\x1f"
 RECORD_SEPARATOR: Final[str] = "\x1e"
 """The separator between commits in the git log output."""
 
-LOG_FORMAT: Final[str] = "--format=%H%x1f%an%x1f%P%x1f%B%x1e"
-"""The git log format: sha, author name, parents and message of each commit."""
+LOG_FORMAT: Final[str] = "--format=%H%x1f%P%x1f%B%x1e"
+"""The git log format: sha, parents and message of each commit."""
 
 HEADER: Final[re.Pattern[str]] = re.compile(
     r"(?P<type>[^\s():!]+)(?:\((?P<scope>[^()]*)\))?(?P<bang>!)?: (?P<summary>.*)"
@@ -94,9 +84,6 @@ ISSUE_TRAILER: Final[re.Pattern[str]] = re.compile(
 
 BREAKING_TRAILER: Final[re.Pattern[str]] = re.compile(r"BREAKING-CHANGE: \S.*")
 """The BREAKING-CHANGE trailer."""
-
-COAUTHOR_TRAILER: Final[re.Pattern[str]] = re.compile(r"Co-authored-by: \S.*? <[^<>\s@]+@[^<>\s]+>")
-"""The Co-authored-by trailer with a name and an address."""
 
 TRAILER_START: Final[re.Pattern[str]] = re.compile(r"[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*: ")
 """A line start shaped like a git trailer key, such as 'Signed-off-by: '."""
@@ -353,15 +340,7 @@ def check_breaking(trailers: list[str], other_lines: list[str], *, bang: bool) -
     return errors
 
 
-def is_github_appendix(paragraph: list[str]) -> bool:
-    """Tell whether a paragraph is the co-author list of a GitHub squash, with any cherry-pick line after it."""
-    names: list[str] = [line for line in paragraph if not CHERRY_PICK.fullmatch(line)]
-    return bool(names) and paragraph[: len(names)] == names and all(line.startswith(COAUTHOR_KEY) for line in names)
-
-
-def check(
-    raw: str, scopes: tuple[str, ...] = (), author: str = "", *, github_appendix: bool = False, scissors: bool = False
-) -> list[str]:
+def check(raw: str, scopes: tuple[str, ...] = (), *, scissors: bool = False) -> list[str]:
     """Return the grammar errors of a commit message."""
     lines: list[str] = normalize(raw, scissors=scissors)
     if not lines:
@@ -369,18 +348,12 @@ def check(
     if lines[0].startswith(WORK_PREFIXES):
         return []
     parts: list[list[str]] = paragraphs(lines)
-    appendix: list[str] = []
-    if github_appendix and len(parts) >= 3 and parts[-2] == [GITHUB_SEPARATOR] and is_github_appendix(parts[-1]):
-        appendix = [line for line in parts[-1] if not CHERRY_PICK.fullmatch(line)]
-        parts = parts[:-2]
     errors, match = check_header(parts[0][0], scopes)
     if len(parts[0]) > 1:
         errors.append(
             f"header: the header continues on the next line {parts[0][1]!r}: keep the header on one line "
             "and leave one empty line after it"
         )
-    if author in BOT_AUTHORS:
-        return errors
     body: list[list[str]] = parts[1:]
     trailers: list[str] = body[3] if len(body) >= 4 else []
     other_lines: list[str] = [line for part in parts if part is not trailers for line in part]
@@ -391,9 +364,6 @@ def check(
     errors += check_verification(sections.get("Verification:", []))
     if not section_errors:
         errors += check_trailers(trailers, "\n\n".join("\n".join(part) for part in parts) + "\n")
-    for line in appendix:
-        if not COAUTHOR_TRAILER.fullmatch(line):
-            errors.append(f"trailers: {line!r} is not 'Co-authored-by: <name> <email>': correct the line")
     if match and match.group("type") == "revert":
         change: list[str] = list_items(sections.get("Change:", []))
         if not change or not REVERT_LINE.fullmatch(change[0]):
@@ -414,19 +384,19 @@ def git_output(*args: str) -> str:
     return run.stdout.decode("utf-8", errors="replace").strip() if run.returncode == 0 else ""
 
 
-def commits(*rev_args: str) -> list[tuple[str, str, int, str]]:
-    """Return sha, author name, parent count and message of each commit in the revision range."""
+def commits(*rev_args: str) -> list[tuple[str, int, str]]:
+    """Return sha, parent count and message of each commit in the revision range."""
     run: subprocess.CompletedProcess[bytes] = subprocess.run(
         ["git", "log", "--reverse", LOG_FORMAT, *rev_args], capture_output=True, check=False
     )
     if run.returncode != 0:
         raise GitError(run.stderr.decode("utf-8", errors="replace").strip())
-    result: list[tuple[str, str, int, str]] = []
+    result: list[tuple[str, int, str]] = []
     for record in run.stdout.decode("utf-8", errors="replace").split(RECORD_SEPARATOR):
         fields: list[str] = record.strip("\n").split(FIELD_SEPARATOR)
-        if len(fields) == 4:
-            sha, name, parents, message = fields
-            result.append((sha, name, len(parents.split()), message))
+        if len(fields) == 3:
+            sha, parents, message = fields
+            result.append((sha, len(parents.split()), message))
     return result
 
 
@@ -453,15 +423,11 @@ def check_revert_target(message: str, commit: str = "HEAD") -> list[str]:
     return errors
 
 
-def check_commit(
-    sha: str, author: str, parents: int, message: str, scopes: tuple[str, ...], *, from_github: bool = False
-) -> list[str]:
+def check_commit(sha: str, parents: int, message: str, scopes: tuple[str, ...]) -> list[str]:
     """Return the errors of one commit on the default branch."""
     header: str = message.split("\n", 1)[0]
     errors: list[str]
-    if author in BOT_AUTHORS and from_github:
-        errors = check(message, scopes, author)
-    elif parents > 1:
+    if parents > 1:
         errors = [
             (
                 f"branch: the commit is a merge commit {header!r}: the default branch takes no merge commits, "
@@ -471,41 +437,19 @@ def check_commit(
     elif header.startswith(WORK_PREFIXES):
         errors = [f"branch: {header!r} is a work commit: fold it with 'git rebase --autosquash <base>' before the push"]
     else:
-        errors = check(message, scopes, github_appendix=from_github)
+        errors = check(message, scopes)
         match: re.Match[str] | None = HEADER.fullmatch(SQUASH_SUFFIX.sub("", header))
         if match and match.group("type") == "revert":
             errors += check_revert_target(message, sha)
     return [f"{error} (commit {sha[:12]})" for error in errors]
 
 
-def check_range(rev_args: list[str], scopes: tuple[str, ...], *, from_github: bool = False) -> list[str]:
+def check_range(rev_args: list[str], scopes: tuple[str, ...]) -> list[str]:
     """Return the errors of every commit that the revision arguments select for the default branch."""
     errors: list[str] = []
-    for sha, name, parents, message in commits(*rev_args):
-        errors += check_commit(sha, name, parents, message, scopes, from_github=from_github)
+    for sha, parents, message in commits(*rev_args):
+        errors += check_commit(sha, parents, message, scopes)
     return errors
-
-
-def wrap_like_github(body: str) -> str:
-    """Return the body with each list item longer than GITHUB_WRAP broken at spaces, as a squash merge does."""
-    lines: list[str] = []
-    for line in body.replace("\r\n", "\n").split("\n"):
-        item: str = line.rstrip()
-        if item.startswith(BULLET) and len(item) > GITHUB_WRAP:
-            lines += textwrap.wrap(item, GITHUB_WRAP, break_long_words=False, break_on_hyphens=False)
-        else:
-            lines.append(line)
-    return "\n".join(lines)
-
-
-def check_pull_request(title: str, body: str, scopes: tuple[str, ...], author: str = "") -> list[str]:
-    """Check the title and body of a pull request as the message its squash commit will get."""
-    if title.startswith(WORK_PREFIXES):
-        return [f"branch: the title {title!r} is the header of a work commit: write '<type>(<scope>): <summary>'"]
-    message: str = f"{title}\n\n{wrap_like_github(body)}"
-    if author in BOT_AUTHORS:
-        return check(message, scopes, author)
-    return check(message, scopes) + check_revert_target(message)
 
 
 def default_branch() -> str:
@@ -562,40 +506,27 @@ def merge_in_progress() -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Check a message file, a push, a commit range or a pull request; return 1 on any error."""
+    """Check a message file or a push; return 1 on any error."""
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description="Check commit messages.",
-        epilog=(
-            "commit-msg hook: --scopes=<list> <message file>; pre-push hook: --scopes=<list> --pre-push; "
-            "CI on the default branch: --scopes=<list> --range BASE..HEAD; "
-            "CI on a pull request: --scopes=<list> --pr-title <title> --pr-body-file <file> --pr-author <login>"
-        ),
+        epilog="commit-msg hook: --scopes=<list> <message file>; pre-push hook: --scopes=<list> --pre-push",
     )
     parser.add_argument("--scopes", default="", help="comma-separated scope list of the repository")
-    parser.add_argument("--range", help="check every commit in BASE..HEAD as the default branch would get it")
     parser.add_argument("--pre-push", action="store_true", help="read the pre-push hook input from stdin")
-    parser.add_argument("--pr-title", help="pull request title; with --pr-body-file")
-    parser.add_argument("--pr-body-file", help="file with the pull request body")
-    parser.add_argument("--pr-author", default="", help="login of the pull request author; bots get the header check only")
     parser.add_argument("message_file", nargs="?", help="commit message file of the commit-msg hook")
     args: argparse.Namespace = parser.parse_args(argv)
     message_file: str | None = args.message_file
-    revisions: str | None = args.range
-    title: str | None = args.pr_title
-    body_file: str | None = args.pr_body_file
     pre_push: bool = args.pre_push
     scopes: tuple[str, ...] = tuple(name for name in args.scopes.split(",") if name)
-    pull_request: bool = title is not None or body_file is not None
-    modes: int = sum((message_file is not None, pre_push, revisions is not None, pull_request))
-    if modes != 1 or (pull_request and (title is None or body_file is None)):
-        parser.error("use exactly one of: a message file, --pre-push, --range, or --pr-title with --pr-body-file")
+    if (message_file is not None) == pre_push:
+        parser.error("use exactly one of: a message file or --pre-push")
     invalid: list[str] = [name for name in scopes if not SCOPE_NAME.fullmatch(name)]
     errors: list[str]
     if invalid:
         errors = [f"scope: the hook declares invalid scope names {invalid!r}: use lowercase letters, digits and hyphens"]
-    elif pre_push or revisions is not None:
+    elif pre_push:
         try:
-            push: str | None = pre_push_input(sys.stdin.read()) if pre_push else ""
+            push: str | None = pre_push_input(sys.stdin.read())
             if push is None:
                 errors = [
                     (
@@ -603,15 +534,10 @@ def main(argv: list[str] | None = None) -> int:
                         "run it as the git pre-push hook or through prek"
                     )
                 ]
-            elif pre_push:
-                errors = check_pre_push(push, scopes)
             else:
-                errors = check_range([revisions or ""], scopes, from_github=True)
+                errors = check_pre_push(push, scopes)
         except GitError as failure:
             errors = [f"git: cannot read the commits to check ({failure}): fetch the remote and check the range"]
-    elif title is not None and body_file is not None:
-        body: str = Path(body_file).read_bytes().decode("utf-8", errors="replace")
-        errors = check_pull_request(title, body, scopes, args.pr_author)
     elif message_file is None or merge_in_progress():
         errors = []
     else:
