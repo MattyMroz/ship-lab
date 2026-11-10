@@ -58,3 +58,4 @@ p1 second note
 p1 third note
 p3 start note
 p3 push 1 note
+p3 push 2 note
