@@ -16,9 +16,6 @@ TYPES: Final[tuple[str, ...]] = (
 BRANCH_NAME: Final[re.Pattern[str]] = re.compile(rf"(?:{'|'.join(TYPES)})/[a-z0-9][a-z0-9-]*")
 """A branch name: a commit type, a slash and a slug of lowercase letters, digits and hyphens."""
 
-MAX_BRANCH_LENGTH: Final[int] = 50
-"""The longest branch name, so it stays readable in branch lists and worktree paths."""
-
 BOT_PREFIXES: Final[tuple[str, ...]] = ("dependabot/", "copilot/")
 """Branch prefixes of bots that name their own branches."""
 
@@ -71,11 +68,11 @@ def check_branch_name(name: str) -> list[str]:
     """Return the error for a branch name outside <type>/<slug>, or nothing for a good or bot name."""
     if name.startswith(BOT_PREFIXES):
         return []
-    if BRANCH_NAME.fullmatch(name) and len(name) <= MAX_BRANCH_LENGTH:
+    if BRANCH_NAME.fullmatch(name):
         return []
     return [
         (
-            f"branch: {name!r} is not <type>/<slug> of at most {MAX_BRANCH_LENGTH} characters: start a new branch "
+            f"branch: {name!r} is not <type>/<slug>: start a new branch "
             f"named like 'fix/missing-file-error', with a type from {', '.join(TYPES)}"
         )
     ]
@@ -91,7 +88,12 @@ def check_ref(ref: str, default: str) -> list[str]:
             )
         ]
     if ref.startswith(TAGS):
-        return [f"push: the push sends the tag {ref!r}, and tags come from releases on GitHub: push the branch only"]
+        return [
+            (
+                f"push: the push sends the tag {ref!r}, and a tag is a published release identifier that must never "
+                "move, so a person or the release procedure of the repository creates it: push the branch only"
+            )
+        ]
     if ref.startswith(HEADS):
         return check_branch_name(ref.removeprefix(HEADS))
     return []

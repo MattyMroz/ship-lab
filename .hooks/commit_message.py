@@ -22,7 +22,10 @@ REPO_SCOPE: Final[str] = "repo"
 """The scope of a change that is not inside one part of the program, valid in every repository."""
 
 WORK_PREFIXES: Final[tuple[str, ...]] = ("fixup! ", "amend! ")
-"""Header prefixes of work commits that the commit-msg hook lets through."""
+"""Header prefixes of work commits that the commit-msg hook lets through in a local commit."""
+
+FINAL_VARIABLE: Final[str] = "COMMIT_MESSAGE_FINAL"
+"""The variable that, set to 1, marks a message that lands on the default branch as it is, such as a squash message."""
 
 BREAKING_KEY: Final[str] = "BREAKING-CHANGE:"
 """The trailer key of a breaking change."""
@@ -340,13 +343,17 @@ def check_breaking(trailers: list[str], other_lines: list[str], *, bang: bool) -
     return errors
 
 
-def check(raw: str, scopes: tuple[str, ...] = (), *, scissors: bool = False) -> list[str]:
-    """Return the grammar errors of a commit message."""
+def check(raw: str, scopes: tuple[str, ...] = (), *, scissors: bool = False, final: bool = False) -> list[str]:
+    """Return the grammar errors of a commit message; final marks a message that lands on the default branch."""
     lines: list[str] = normalize(raw, scissors=scissors)
     if not lines:
         return ["header: the message is empty: write the header, the three sections and the trailers"]
     if lines[0].startswith(WORK_PREFIXES):
-        return []
+        return [(
+            f"branch: {lines[0]!r} is a work commit header, and the default branch takes no work commits: "
+            "fold the commit with 'git rebase --autosquash <base>' before the push, "
+            "or write the full header in a message that lands on the default branch as it is"
+        )] if final else []
     parts: list[list[str]] = paragraphs(lines)
     errors, match = check_header(parts[0][0], scopes)
     if len(parts[0]) > 1:
@@ -434,10 +441,8 @@ def check_commit(sha: str, parents: int, message: str, scopes: tuple[str, ...]) 
                 "so squash or rebase the branch instead"
             )
         ]
-    elif header.startswith(WORK_PREFIXES):
-        errors = [f"branch: {header!r} is a work commit: fold it with 'git rebase --autosquash <base>' before the push"]
     else:
-        errors = check(message, scopes)
+        errors = check(message, scopes, final=True)
         match: re.Match[str] | None = HEADER.fullmatch(SQUASH_SUFFIX.sub("", header))
         if match and match.group("type") == "revert":
             errors += check_revert_target(message, sha)
@@ -509,7 +514,10 @@ def main(argv: list[str] | None = None) -> int:
     """Check a message file or a push; return 1 on any error."""
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description="Check commit messages.",
-        epilog="commit-msg hook: --scopes=<list> <message file>; pre-push hook: --scopes=<list> --pre-push",
+        epilog=(
+            "commit-msg hook: --scopes=<list> <message file>, with COMMIT_MESSAGE_FINAL=1 for a message that lands "
+            "on the default branch as it is; pre-push hook: --scopes=<list> --pre-push"
+        ),
     )
     parser.add_argument("--scopes", default="", help="comma-separated scope list of the repository")
     parser.add_argument("--pre-push", action="store_true", help="read the pre-push hook input from stdin")
@@ -554,7 +562,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             ]
         else:
-            errors = check(raw, scopes, scissors=edited) + check_revert_target(raw)
+            final: bool = os.environ.get(FINAL_VARIABLE) == "1"
+            errors = check(raw, scopes, scissors=edited, final=final) + check_revert_target(raw)
     for error in errors:
         print(error, file=sys.stderr)
     if errors:
