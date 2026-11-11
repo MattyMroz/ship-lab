@@ -40,6 +40,7 @@ jobs:
         env:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
+          GIT_EDITOR: ":"
           COMMIT_MESSAGE_FINAL: "1"
         run: |
           printf '%s\n\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/message"
