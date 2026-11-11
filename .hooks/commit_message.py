@@ -430,6 +430,14 @@ def commits(*rev_args: str) -> list[tuple[str, int, str, str]]:
     return result
 
 
+def is_commit(sha: str) -> bool:
+    """Tell whether the local repository has the commit."""
+    run: subprocess.CompletedProcess[bytes] = subprocess.run(
+        ["git", "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, check=False
+    )
+    return run.returncode == 0
+
+
 def is_ancestor(sha: str, commit: str) -> bool:
     """Tell whether sha is in the history of commit."""
     run: subprocess.CompletedProcess[bytes] = subprocess.run(
@@ -541,8 +549,12 @@ def check_pre_push(stdin: str, scopes: tuple[str, ...]) -> list[str]:
         if len(parts) != 4 or not parts[2].startswith("refs/heads/") or set(parts[1]) == {"0"}:
             continue
         local, remote = parts[1], parts[3]
-        rev_args: list[str] = [local, "--not", "--remotes"] if set(remote) == {"0"} else [f"{remote}..{local}"]
-        errors += check_range(rev_args, scopes) if parts[2] == target else check_branch_signoffs(rev_args)
+        if parts[2] == target:
+            rev_args: list[str] = [local, "--not", "--remotes"] if set(remote) == {"0"} else [f"{remote}..{local}"]
+            errors += check_range(rev_args, scopes)
+        else:
+            known: bool = set(remote) != {"0"} and is_commit(remote)
+            errors += check_branch_signoffs([f"{remote}..{local}" if known else local, "--not", "--remotes"])
     return errors
 
 
