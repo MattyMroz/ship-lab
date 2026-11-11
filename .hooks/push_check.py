@@ -1,4 +1,4 @@
-"""Refuse a push to the default branch or a tag and a branch name outside <type>/<slug>, in pre-push and in CI."""
+"""Refuse a push to the default branch or a tag and a branch name outside <type>/<slug> in pre-push."""
 
 import os
 import re
@@ -15,9 +15,6 @@ TYPES: Final[tuple[str, ...]] = (
 
 BRANCH_NAME: Final[re.Pattern[str]] = re.compile(rf"(?:{'|'.join(TYPES)})/[a-z0-9][a-z0-9-]*")
 """A branch name: a commit type, a slash and a slug of lowercase letters, digits and hyphens."""
-
-BOT_PREFIXES: Final[tuple[str, ...]] = ("dependabot/", "copilot/")
-"""Branch prefixes of bots that name their own branches."""
 
 HEADS: Final[str] = "refs/heads/"
 """The ref prefix of a branch."""
@@ -65,9 +62,7 @@ def pushed_refs(stdin: str) -> list[str]:
 
 
 def check_branch_name(name: str) -> list[str]:
-    """Return the error for a branch name outside <type>/<slug>, or nothing for a good or bot name."""
-    if name.startswith(BOT_PREFIXES):
-        return []
+    """Return the error for a branch name outside <type>/<slug>, or nothing for a good name."""
     if BRANCH_NAME.fullmatch(name):
         return []
     return [
@@ -103,16 +98,11 @@ def check_ref(ref: str, default: str) -> list[str]:
 
 
 def main() -> int:
-    """Check the pushed refs or, in CI, the pull request branch; return 1 on any error."""
-    head_ref: str = os.environ.get("GITHUB_HEAD_REF", "")
-    errors: list[str]
-    if head_ref:
-        errors = check_branch_name(head_ref)
-    else:
-        stdin: str = sys.stdin.read() if sys.stdin is not None and not sys.stdin.isatty() else ""
-        refs: list[str] = pushed_refs(stdin)
-        default: str = default_branch() if refs else DEFAULT_BRANCH
-        errors = [error for ref in refs for error in check_ref(ref, default)]
+    """Check the pushed refs; return 1 on any error."""
+    stdin: str = sys.stdin.read() if sys.stdin is not None and not sys.stdin.isatty() else ""
+    refs: list[str] = pushed_refs(stdin)
+    default: str = default_branch() if refs else DEFAULT_BRANCH
+    errors: list[str] = [error for ref in refs for error in check_ref(ref, default)]
     if not errors:
         return 0
     for error in errors:

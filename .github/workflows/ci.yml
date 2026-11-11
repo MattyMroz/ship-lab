@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, edited, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -35,29 +36,17 @@ jobs:
           install-only: true
 
       - name: Pull request messages
-        if: github.event_name == 'pull_request' && !endsWith(github.event.pull_request.user.login, '[bot]')
+        if: github.event_name == 'pull_request'
         env:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          COMMIT_MESSAGE_FINAL: "1"
         run: |
-          failed=0
           printf '%s\n\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/message"
           if ! prek run --stage commit-msg --commit-msg-filename "$RUNNER_TEMP/message"; then
             echo "::error::pull request title or description breaks the commit message rules"
-            failed=1
+            exit 1
           fi
-          shas=$(git rev-list --no-merges "$BASE..$HEAD")
-          for sha in $shas; do
-            case "$(git log -1 --format=%an "$sha")" in *'[bot]') continue ;; esac
-            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message"
-            if ! prek run --stage commit-msg --commit-msg-filename "$RUNNER_TEMP/message"; then
-              echo "::error::commit $sha breaks the commit message rules"
-              failed=1
-            fi
-          done
-          exit "$failed"
 
       - name: Pushed commits
         if: github.event_name == 'push'
@@ -79,7 +68,6 @@ jobs:
           failed=0
           shas=$(git rev-list --no-merges "$range")
           for sha in $shas; do
-            case "$(git log -1 --format=%an "$sha")" in *'[bot]') continue ;; esac
             git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message"
             if ! prek run --stage commit-msg --commit-msg-filename "$RUNNER_TEMP/message"; then
               echo "::error::commit $sha breaks the commit message rules"
@@ -118,4 +106,6 @@ jobs:
           install-only: true
 
       - name: Push gates
+        env:
+          SKIP: ship-push,commit-message-push
         run: prek run --stage pre-push $RANGE --show-diff-on-failure
