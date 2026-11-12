@@ -32,7 +32,7 @@ jobs:
 
       - uses: j178/prek-action@v3.1.0
         with:
-          prek-version: 0.5.4
+          prek-version: 0.5.10
           install-only: true
 
       - name: Pull request messages
@@ -103,7 +103,7 @@ jobs:
 
       - uses: j178/prek-action@v3.1.0
         with:
-          prek-version: 0.5.4
+          prek-version: 0.5.10
           install-only: true
 
       - name: Push gates
