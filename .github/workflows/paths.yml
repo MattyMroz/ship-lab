@@ -1,0 +1,18 @@
+name: Paths
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lab/**"
+
+permissions:
+  contents: read
+
+jobs:
+  only:
+    name: Paths only
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "lab files changed"
