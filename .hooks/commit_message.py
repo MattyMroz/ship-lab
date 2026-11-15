@@ -21,9 +21,6 @@ LABELS: Final[tuple[str, ...]] = ("Problem:", "Change:", "Verification:")
 REPO_SCOPE: Final[str] = "repo"
 """The scope of a change that is not inside one part of the program, valid in every repository."""
 
-WORK_PREFIXES: Final[tuple[str, ...]] = ("fixup! ", "amend! ")
-"""Header prefixes of work commits that the commit-msg hook lets through in a local commit."""
-
 FINAL_VARIABLE: Final[str] = "COMMIT_MESSAGE_FINAL"
 """The variable that, set to 1, marks a message that lands on the default branch as it is, such as a squash message."""
 
@@ -54,8 +51,14 @@ FIELD_SEPARATOR: Final[str] = "\x1f"
 RECORD_SEPARATOR: Final[str] = "\x1e"
 """The separator between commits in the git log output."""
 
-LOG_FORMAT: Final[str] = "--format=%H%x1f%P%x1f%an <%ae>%x1f%B%x1e"
+LOG_FORMAT: Final[str] = "--format=" + FIELD_SEPARATOR.join(("%H", "%P", "%an <%ae>", "%B")) + RECORD_SEPARATOR
 """The git log format: sha, parents, author and message of each commit."""
+
+HEADS: Final[str] = "refs/heads/"
+"""The ref prefix of a branch."""
+
+SHORT_SHA: Final[int] = 12
+"""The number of SHA characters that name a commit in an error."""
 
 HEADER: Final[re.Pattern[str]] = re.compile(
     r"(?P<type>[^\s():!]+)(?:\((?P<scope>[^()]*)\))?(?P<bang>!)?: (?P<summary>.*)"
@@ -67,6 +70,9 @@ SQUASH_SUFFIX: Final[re.Pattern[str]] = re.compile(r" \(#\d+\)$")
 
 SCOPE_NAME: Final[re.Pattern[str]] = re.compile(r"[a-z0-9-]+")
 """A valid scope name."""
+
+SUMMARY_START: Final[re.Pattern[str]] = re.compile(r"[a-z]")
+"""The first character of a summary: a lowercase letter a-z."""
 
 BULLET: Final[str] = "- "
 """The start of every section item."""
@@ -91,10 +97,10 @@ SIGNOFF_TRAILER: Final[re.Pattern[str]] = re.compile(
 """The Signed-off-by trailer with the name and email of a person."""
 
 ATTRIBUTION: Final[re.Pattern[str]] = re.compile(
-    r"\s*(?:-\s+)?co-authored-by:|\s*(?:\U0001F916\s*)?generated (?:with|by) \[", re.IGNORECASE
+    r"\s*(?:-\s+)?(?:(?:co-authored|assisted|generated)-by:|(?:\U0001F916\s*)?generated (?:with|by) \[)",
+    re.IGNORECASE,
 )
-"""A line that credits a co-author or a generating tool: a Co-authored-by key, also as a list item, or a footer
-such as 'Generated with ['."""
+"""A line, also a list item, that credits a co-author or tool: Co-authored-by, Assisted-by, Generated-by or a footer."""
 
 TRAILER_START: Final[re.Pattern[str]] = re.compile(r"[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*: ")
 """A line start shaped like a git trailer key, such as 'Signed-off-by: '."""
@@ -152,7 +158,7 @@ def check_summary(summary: str) -> list[str]:
     if not summary:
         return ["summary: the summary is empty: write an imperative verb and what changes after ': '"]
     errors: list[str] = []
-    if not re.match(r"[a-z]", summary):
+    if not SUMMARY_START.match(summary):
         errors.append(
             f"summary: the summary {summary!r} does not start with a lowercase letter a-z: "
             "start with a lowercase imperative verb, such as 'add', 'remove' or 'handle'"
@@ -216,6 +222,11 @@ def check_items(label: str, lines: list[str]) -> list[str]:
                 f"sections: {line!r} starts like '#' or a patch, so git drops it or git am cuts the message there: "
                 "join it to the item above or reword its start"
             )
+        elif CHERRY_PICK.fullmatch(line):
+            errors.append(
+                f"sections: {line!r} stands under {label!r}: put the cherry-pick line after an empty line, "
+                "in the last paragraph"
+            )
         elif not line.startswith(BULLET) and TRAILER_START.match(line):
             errors.append(
                 f"sections: {line!r} under {label!r} looks like a trailer: put trailers in the last paragraph "
@@ -256,15 +267,14 @@ def check_sections(body: list[list[str]]) -> tuple[list[str], dict[str, list[str
             )
             continue
         first: str = body[index][0]
-        if first == label:
+        if body[index] == [label]:
+            errors.append(f"sections: the section {label!r} has no item: write '- <text>' directly under the label")
+        elif first == label:
             sections[label] = body[index][1:]
-            if not sections[label]:
-                errors.append(
-                    f"sections: the section {label!r} has no item: write '- <text>' directly under the label"
-                )
         elif first.startswith(label):
             errors.append(
-                f"sections: {first!r} has text after the label: put {label!r} alone on its line and the text on the next line"
+                f"sections: {first!r} has text after the label: "
+                f"put {label!r} alone on its line and the text on the next line"
             )
         elif first.startswith(BULLET):
             errors.append(
@@ -276,7 +286,7 @@ def check_sections(body: list[list[str]]) -> tuple[list[str], dict[str, list[str
                 "in this order, each label alone on a line, one empty line between sections"
             )
     for label, lines in sections.items():
-        errors += check_items(label, lines) + check_attribution(lines)
+        errors += check_items(label, lines)
     if len(body) > 3 and body[3][0].startswith(BULLET):
         errors.append(
             f"sections: an empty line splits a list before {body[3][0]!r}: remove the empty lines between items"
@@ -328,16 +338,16 @@ def check_trailers(trailers: list[str], author_message: str) -> list[str]:
                 f"or use only {ALLOWED_TRAILERS} in the last paragraph"
             )
     breaking: list[int] = [index for index, line in enumerate(trailers) if line.startswith(BREAKING_KEY)]
-    if len(breaking) > 1:
-        errors.append("trailers: there is more than one BREAKING-CHANGE trailer: keep one sentence in one trailer")
     if breaking and breaking[0] != 0:
-        errors.append("trailers: BREAKING-CHANGE is not the first trailer: move it to the first line of the last paragraph")
+        errors.append(
+            "trailers: BREAKING-CHANGE is not the first trailer: move it to the first line of the last paragraph"
+        )
     expected: list[str] = [line for line in trailers if not CHERRY_PICK.fullmatch(line)]
     parsed: list[str] = git_trailers(author_message)
     if parsed != expected:
         errors.append(
             f"trailers: git reads the trailers as {parsed!r}, not as the last paragraph {expected!r}: "
-            f"keep only {ALLOWED_TRAILERS} lines in the last paragraph, after an empty line"
+            f"keep only these lines in the last paragraph, after an empty line: {ALLOWED_TRAILERS}"
         )
     return errors
 
@@ -346,14 +356,18 @@ def check_breaking(trailers: list[str], other_lines: list[str], *, bang: bool) -
     """Check that '!' and the BREAKING-CHANGE trailer go together."""
     errors: list[str] = []
     count: int = sum(line.startswith(BREAKING_KEY) for line in trailers)
-    if bang and count != 1:
+    if bang and not count:
         errors.append(
-            "breaking: the header has '!' but the trailers have no single BREAKING-CHANGE: add "
+            "breaking: the header has '!' but the trailers have no BREAKING-CHANGE: add "
             "'BREAKING-CHANGE: <what stops working>; <what to do instead>' as the first line of the last "
             "paragraph, or remove '!'"
         )
+    if count > 1:
+        errors.append("breaking: there is more than one BREAKING-CHANGE trailer: keep one sentence in one trailer")
     if not bang and count:
-        errors.append("breaking: the trailers have BREAKING-CHANGE but the header has no '!': put '!' right before ': '")
+        errors.append(
+            "breaking: the trailers have BREAKING-CHANGE but the header has no '!': put '!' right before ': '"
+        )
     for line in other_lines:
         if BREAKING_MARK.match(line):
             errors.append(
@@ -363,34 +377,35 @@ def check_breaking(trailers: list[str], other_lines: list[str], *, bang: bool) -
     return errors
 
 
+def check_header_lines(paragraph: list[str]) -> list[str]:
+    """Check that the header paragraph is one line."""
+    if len(paragraph) == 1:
+        return []
+    return [(
+        f"header: the header continues on the next line {paragraph[1]!r}: keep the header on one line "
+        "and leave one empty line after it"
+    )]
+
+
 def check(raw: str, scopes: tuple[str, ...] = (), *, scissors: bool = False, final: bool = False) -> list[str]:
-    """Return the grammar errors of a commit message; final marks a message that lands on the default branch."""
+    """Return the errors of a message: header and attribution, and with final the full form of the default branch."""
     lines: list[str] = normalize(raw, scissors=scissors)
     if not lines:
-        return ["header: the message is empty: write the header, the three sections and the trailers"]
-    if lines[0].startswith(WORK_PREFIXES):
-        work_errors: list[str] = check_attribution(lines + inner_lines(lines))
-        if final:
-            work_errors.insert(0, (
-                f"branch: {lines[0]!r} is a work commit header, and the default branch takes no work commits: "
-                "fold the commit with 'git rebase --autosquash <base>' before the push, "
-                "or write the full header in a message that lands on the default branch as it is"
-            ))
-        return work_errors
+        return ["header: the message is empty: write the header '<type>(<scope>): <summary>'"]
     parts: list[list[str]] = paragraphs(lines)
     errors, match = check_header(parts[0][0], scopes)
-    if len(parts[0]) > 1:
-        errors.append(
-            f"header: the header continues on the next line {parts[0][1]!r}: keep the header on one line "
-            "and leave one empty line after it"
-        )
+    errors += check_header_lines(parts[0])
+    attribution: list[str] = check_attribution(lines + inner_lines(lines))
+    errors += attribution
+    if not final or attribution:
+        return errors
     body: list[list[str]] = parts[1:]
     trailers: list[str] = body[3] if len(body) >= 4 else []
     other_lines: list[str] = [line for part in parts if part is not trailers for line in part]
     if match:
         errors += check_breaking(trailers, other_lines, bang=bool(match.group("bang")))
     section_errors, sections = check_sections(body)
-    errors += section_errors + check_attribution(inner_lines(lines))
+    errors += section_errors
     errors += check_verification(sections.get("Verification:", []))
     if not section_errors:
         errors += check_trailers(trailers, "\n\n".join("\n".join(part) for part in parts) + "\n")
@@ -399,8 +414,8 @@ def check(raw: str, scopes: tuple[str, ...] = (), *, scissors: bool = False, fin
         if not change or not REVERT_LINE.fullmatch(change[0]):
             errors.append(
                 f"revert: the first item of Change: is {change[0] if change else ''!r}: write exactly "
-                "'- revert commit <full SHA>' with the SHA from 'git log -1 --format=%H <commit>' and nothing after it; "
-                "the reason goes to Problem:"
+                "'- revert commit <full SHA>' with the SHA from 'git log -1 --format=%H <commit>' "
+                "and nothing after it; the reason goes to Problem:"
             )
     return errors
 
@@ -423,10 +438,13 @@ def commits(*rev_args: str) -> list[tuple[str, int, str, str]]:
         raise GitError(run.stderr.decode("utf-8", errors="replace").strip())
     result: list[tuple[str, int, str, str]] = []
     for record in run.stdout.decode("utf-8", errors="replace").split(RECORD_SEPARATOR):
-        fields: list[str] = record.strip("\n").split(FIELD_SEPARATOR)
-        if len(fields) == 4:
-            sha, parents, author, message = fields
-            result.append((sha, len(parents.split()), author, message))
+        fields: list[str] = record.strip("\n").split(FIELD_SEPARATOR, 3)
+        if fields == [""]:
+            continue
+        if len(fields) < 4:
+            raise GitError(f"a commit message holds the separator {RECORD_SEPARATOR!r}: remove it from the message")
+        sha, parents, author, message = fields
+        result.append((sha, len(parents.split()), author, message))
     return result
 
 
@@ -447,7 +465,7 @@ def is_ancestor(sha: str, commit: str) -> bool:
 
 
 def check_revert_target(message: str, commit: str = "HEAD") -> list[str]:
-    """Check that the commit named in a revert is in the history of the given commit."""
+    """Check that every '- revert commit <SHA>' line names a commit in the history of the given commit."""
     errors: list[str] = []
     for line in normalize(message):
         if not REVERT_LINE.fullmatch(line):
@@ -456,7 +474,8 @@ def check_revert_target(message: str, commit: str = "HEAD") -> list[str]:
         if not is_ancestor(sha, commit):
             errors.append(
                 f"revert: the reverted commit {sha} is not in the history of this branch: "
-                "use the full SHA of a commit on this branch from 'git log -1 --format=%H <commit>'"
+                "use the full SHA of a commit on this branch from 'git log -1 --format=%H <commit>', or name "
+                "a commit outside this branch by its short id instead of this line, with a type other than revert"
             )
     return errors
 
@@ -482,16 +501,15 @@ def check_commit(sha: str, parents: int, author: str, message: str, scopes: tupl
     if parents > 1:
         errors = [
             (
-                f"branch: the commit is a merge commit {header!r}: the default branch takes no merge commits, "
-                "so squash or rebase the branch instead"
+                f"branch: the commit is a merge commit {header!r}: the default branch takes no merge commits: "
+                "keep merge commits on the task branch; the change lands on the default branch through a squash "
+                "merge of the pull request"
             )
         ]
     else:
         errors = check(message, scopes, final=True) + check_signoffs(message, author)
-        match: re.Match[str] | None = HEADER.fullmatch(SQUASH_SUFFIX.sub("", header))
-        if match and match.group("type") == "revert":
-            errors += check_revert_target(message, sha)
-    return [f"{error} (commit {sha[:12]})" for error in errors]
+        errors += check_revert_target(message, sha)
+    return [f"{error} (commit {sha[:SHORT_SHA]})" for error in errors]
 
 
 def check_range(rev_args: list[str], scopes: tuple[str, ...]) -> list[str]:
@@ -506,7 +524,7 @@ def check_branch_signoffs(rev_args: list[str]) -> list[str]:
     """Return the sign-off errors of every commit that the revision arguments select for another branch."""
     errors: list[str] = []
     for sha, _parents, author, message in commits(*rev_args):
-        errors += [f"{error} (commit {sha[:12]})" for error in check_signoffs(message, author)]
+        errors += [f"{error} (commit {sha[:SHORT_SHA]})" for error in check_signoffs(message, author)]
     return errors
 
 
@@ -527,11 +545,11 @@ def pre_push_input(stdin: str) -> str | None:
     if not branch:
         return ""
     if not branch.startswith("refs/"):
-        branch = f"refs/heads/{branch}"
+        branch = HEADS + branch
     from_ref: str = os.environ.get("PRE_COMMIT_FROM_REF", "") or ZERO_SHA
     lines: str = f"HEAD {to_ref} {branch} {from_ref}\n"
     name: str = default_branch()
-    target: str = f"refs/heads/{name}"
+    target: str = HEADS + name
     local: str = git_output("rev-parse", "--verify", "--quiet", target)
     if branch == target or not local:
         return lines
@@ -542,11 +560,11 @@ def pre_push_input(stdin: str) -> str | None:
 
 def check_pre_push(stdin: str, scopes: tuple[str, ...]) -> list[str]:
     """Check every rule on the commits a push sends to the default branch and the sign-offs on other branches."""
-    target: str = f"refs/heads/{default_branch()}"
+    target: str = HEADS + default_branch()
     errors: list[str] = []
     for line in stdin.splitlines():
         parts: list[str] = line.split()
-        if len(parts) != 4 or not parts[2].startswith("refs/heads/") or set(parts[1]) == {"0"}:
+        if len(parts) != 4 or not parts[2].startswith(HEADS) or set(parts[1]) == {"0"}:
             continue
         local, remote = parts[1], parts[3]
         if parts[2] == target:
@@ -565,6 +583,46 @@ def merge_in_progress() -> bool:
 
 
 # ── Command line ──────────────────────────────────────────────────────────────
+
+
+def check_message_file(message_file: str, scopes: tuple[str, ...]) -> list[str]:
+    """Return the errors of the message file of the commit-msg hook, in the mode that the environment sets."""
+    raw: str = Path(message_file).read_bytes().decode("utf-8", errors="replace")
+    edited: bool = os.environ.get("GIT_EDITOR") != NO_EDITOR
+    final: bool = os.environ.get(FINAL_VARIABLE) == "1"
+    if not final and merge_in_progress():
+        lines: list[str] = normalize(raw, scissors=edited)
+        return check_attribution(lines + inner_lines(lines))
+    if edited and git_output("config", "commit.cleanup") != "scissors" and any(
+        line.startswith("#") for line in raw.splitlines()
+    ):
+        return [
+            (
+                "cleanup: the message has lines that start with '#', and commit.cleanup is not scissors, so the "
+                "hook cannot tell the git template from the text: run 'git config commit.cleanup scissors' "
+                "and commit again"
+            )
+        ]
+    errors: list[str] = check(raw, scopes, scissors=edited, final=final)
+    if final:
+        errors += check_revert_target(raw)
+    return errors
+
+
+def check_push(stdin: str, scopes: tuple[str, ...]) -> list[str]:
+    """Return the errors of the push that the pre-push hook gets on stdin or from prek."""
+    push: str | None = pre_push_input(stdin)
+    if push is None:
+        return [
+            (
+                "pre-push: the hook got no push input on stdin and no PRE_COMMIT_TO_REF: "
+                "run it as the git pre-push hook or through prek"
+            )
+        ]
+    try:
+        return check_pre_push(push, scopes)
+    except GitError as failure:
+        return [f"git: cannot read the commits to check ({failure}): fetch the remote and push again"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -588,42 +646,13 @@ def main(argv: list[str] | None = None) -> int:
     invalid: list[str] = [name for name in scopes if not SCOPE_NAME.fullmatch(name)]
     errors: list[str]
     if invalid:
-        errors = [f"scope: the hook declares invalid scope names {invalid!r}: use lowercase letters, digits and hyphens"]
-    elif pre_push:
-        try:
-            push: str | None = pre_push_input(sys.stdin.read())
-            if push is None:
-                errors = [
-                    (
-                        "pre-push: the hook got no push input on stdin and no PRE_COMMIT_TO_REF: "
-                        "run it as the git pre-push hook or through prek"
-                    )
-                ]
-            else:
-                errors = check_pre_push(push, scopes)
-        except GitError as failure:
-            errors = [f"git: cannot read the commits to check ({failure}): fetch the remote and check the range"]
-    elif message_file is None:
-        errors = []
+        errors = [
+            f"scope: the hook declares invalid scope names {invalid!r}: use lowercase letters, digits and hyphens"
+        ]
+    elif message_file is not None:
+        errors = check_message_file(message_file, scopes)
     else:
-        raw: str = Path(message_file).read_bytes().decode("utf-8", errors="replace")
-        edited: bool = os.environ.get("GIT_EDITOR") != NO_EDITOR
-        if merge_in_progress():
-            merge_lines: list[str] = normalize(raw, scissors=edited)
-            errors = check_attribution(merge_lines + inner_lines(merge_lines))
-        elif edited and git_output("config", "commit.cleanup") != "scissors" and any(
-            line.startswith("#") for line in raw.splitlines()
-        ):
-            errors = [
-                (
-                    "cleanup: the message has lines that start with '#', and commit.cleanup is not scissors, so the "
-                    "hook cannot tell the git template from the text: run 'git config commit.cleanup scissors' "
-                    "and commit again"
-                )
-            ]
-        else:
-            final: bool = os.environ.get(FINAL_VARIABLE) == "1"
-            errors = check(raw, scopes, scissors=edited, final=final) + check_revert_target(raw)
+        errors = check_push(sys.stdin.read(), scopes)
     for error in errors:
         print(error, file=sys.stderr)
     if errors:

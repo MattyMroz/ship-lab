@@ -30,9 +30,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.14"
+
       - uses: j178/prek-action@v3.1.0
         with:
-          prek-version: 0.5.4
+          prek-version: 0.5.10
           install-only: true
 
       - name: Pull request messages
@@ -54,6 +58,8 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
+          GIT_EDITOR: ":"
+          COMMIT_MESSAGE_FINAL: "1"
         run: |
           case "$BEFORE" in
             *[!0]*) range="$BEFORE..$AFTER" ;;
@@ -101,9 +107,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.14"
+
       - uses: j178/prek-action@v3.1.0
         with:
-          prek-version: 0.5.4
+          prek-version: 0.5.10
           install-only: true
 
       - name: Push gates
