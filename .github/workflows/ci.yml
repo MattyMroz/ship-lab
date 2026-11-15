@@ -53,7 +53,7 @@ jobs:
               for run in $(gh api "repos/$REPO/actions/runs?event=pull_request&head_sha=$head&status=success" --jq '.workflow_runs[].id'); do
                 job=$(gh api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.name == "Heavy" and .conclusion == "success") | .id')
                 [ -n "$job" ] || continue
-                tested=$(gh api "repos/$REPO/actions/jobs/$job/logs" | sed -n 's/.*TESTED_TREE=\([0-9a-f]\{40\}\).*/\1/p' | head -n 1)
+                tested=$(gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$job/logs" | sed -n 's/.*TESTED_TREE=\([0-9a-f]\{40\}\).*/\1/p' | head -n 1)
                 [ -n "$tested" ] && break
               done
             fi
