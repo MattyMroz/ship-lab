@@ -22,9 +22,6 @@ HEADS: Final[str] = "refs/heads/"
 TAGS: Final[str] = "refs/tags/"
 """The ref prefix of a tag."""
 
-ZERO_SHA: Final[str] = "0" * 40
-"""The SHA that git puts in the pre-push input for a deleted ref."""
-
 DEFAULT_BRANCH: Final[str] = "main"
 """The default branch name when origin/HEAD is not set."""
 
@@ -48,7 +45,7 @@ def pushed_refs(stdin: str) -> list[str]:
     refs: list[str] = []
     for line in stdin.splitlines():
         parts: list[str] = line.split()
-        if len(parts) == 4 and parts[1] != ZERO_SHA:
+        if len(parts) == 4 and set(parts[1]) != {"0"}:
             refs.append(parts[2])
     if refs or stdin.strip():
         return refs
