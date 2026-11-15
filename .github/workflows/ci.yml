@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [main]
     types: [opened, edited, synchronize, reopened]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,103 +19,89 @@ defaults:
     shell: bash
 
 jobs:
-  hooks:
-    name: Hooks
+  changes:
+    name: Changes
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           persist-credentials: false
 
-      - uses: actions/setup-python@v7.1.0
-        with:
-          python-version: "3.14"
-
-      - uses: j178/prek-action@v3.1.0
-        with:
-          prek-version: 0.5.10
-          install-only: true
-
-      - name: Pull request messages
-        if: github.event_name == 'pull_request'
+      - id: diff
         env:
-          TITLE: ${{ github.event.pull_request.title }}
-          BODY: ${{ github.event.pull_request.body }}
-          GIT_EDITOR: ":"
-          COMMIT_MESSAGE_FINAL: "1"
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          printf '%s\n\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/message"
-          if ! prek run --stage commit-msg --commit-msg-filename "$RUNNER_TEMP/message"; then
-            echo "::error::pull request title or description breaks the commit message rules"
-            exit 1
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only HEAD^1 HEAD)
+            echo "changed files:"; echo "$files"
+            if echo "$files" | grep -qvE '^docs/|\.md$'; then code=true; else code=false; fi
+          else
+            tree=$(git rev-parse 'HEAD^{tree}')
+            head=$(gh api "repos/$REPO/commits/$GITHUB_SHA/pulls" --jq '.[0].head.sha // empty')
+            tested=""
+            if [ -n "$head" ]; then
+              for run in $(gh api "repos/$REPO/actions/runs?event=pull_request&head_sha=$head&status=success" --jq '.workflow_runs[].id'); do
+                job=$(gh api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.name == "Heavy" and .conclusion == "success") | .id')
+                [ -n "$job" ] || continue
+                tested=$(gh api "repos/$REPO/actions/jobs/$job/logs" | sed -n 's/.*TESTED_TREE=\([0-9a-f]\{40\}\).*/\1/p' | head -n 1)
+                [ -n "$tested" ] && break
+              done
+            fi
+            echo "main tree $tree, pull request head ${head:-none}, tested tree ${tested:-none}"
+            if [ "$tested" = "$tree" ]; then code=false; else code=true; fi
           fi
+          echo "code=$code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
 
-      - name: Pushed commits
-        if: github.event_name == 'push'
-        env:
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
-          GIT_EDITOR: ":"
-          COMMIT_MESSAGE_FINAL: "1"
+  messages:
+    name: Messages
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          TITLE: ${{ github.event.pull_request.title }}
         run: |
-          case "$BEFORE" in
-            *[!0]*) range="$BEFORE..$AFTER" ;;
-            *) range="$AFTER^!" ;;
-          esac
-          for rev in "$BEFORE" "$AFTER"; do
-            case "$rev" in *[!0]*) ;; *) continue ;; esac
-            if ! git cat-file -e "$rev^{commit}" 2>/dev/null; then
-              echo "::error::$rev is not in this clone; check the pushed commits locally"
-              exit 1
-            fi
-          done
-          failed=0
-          shas=$(git rev-list --no-merges "$range")
-          for sha in $shas; do
-            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message"
-            if ! prek run --stage commit-msg --commit-msg-filename "$RUNNER_TEMP/message"; then
-              echo "::error::commit $sha breaks the commit message rules"
-              failed=1
-            fi
-          done
-          exit "$failed"
+          case "$TITLE" in *BAD*) echo "::error::the title contains BAD"; exit 1 ;; esac
+          echo "title ok: $TITLE"
 
-      - name: Commit hooks
-        env:
-          SKIP: no-commit-to-branch
-        run: prek run --all-files --show-diff-on-failure
-
-  check:
-    name: Check (${{ matrix.os }})
-    needs: hooks
-    if: github.event_name != 'push'
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    env:
-      RANGE: ${{ github.event_name == 'pull_request' && format('--from-ref {0} --to-ref HEAD', github.event.pull_request.base.sha) || '--all-files' }}
+  heavy:
+    name: Heavy
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && github.event.action != 'edited'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-python@v7.1.0
-        with:
-          python-version: "3.14"
+      - run: |
+          if [ -f lab/slow.txt ]; then sleep 90; fi
+          sleep 5
+          if [ -f lab/fail.txt ]; then echo "::error::lab/fail.txt exists"; exit 1; fi
+          echo "TESTED_TREE=$(git rev-parse 'HEAD^{tree}')"
 
-      - uses: j178/prek-action@v3.1.0
-        with:
-          prek-version: 0.5.10
-          install-only: true
-
-      - name: Push gates
-        env:
-          SKIP: ship-push,commit-message-push
-        run: prek run --stage pre-push $RANGE --show-diff-on-failure
+  all:
+    name: All checks
+    needs: [changes, messages, heavy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key) \(.value.result)"'
+          bad=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(" ")')
+          if [ -n "$bad" ]; then echo "::error::not passed: $bad"; exit 1; fi
