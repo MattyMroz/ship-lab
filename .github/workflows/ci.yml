@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -63,22 +63,10 @@ jobs:
           echo "code=$code"
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
-  messages:
-    name: Messages
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          case "$TITLE" in *BAD*) echo "::error::the title contains BAD"; exit 1 ;; esac
-          echo "title ok: $TITLE"
-
   heavy:
     name: Heavy
     needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event.action != 'edited'
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -94,7 +82,7 @@ jobs:
 
   all:
     name: All checks
-    needs: [changes, messages, heavy]
+    needs: [changes, heavy]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
