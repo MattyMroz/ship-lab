@@ -1,0 +1,10 @@
+name: S6 skip
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  never:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo never
