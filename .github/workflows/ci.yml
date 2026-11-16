@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches-ignore: [main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -35,8 +37,9 @@ jobs:
           EVENT: ${{ github.event_name }}
           MODE: ${{ vars.DISPATCH_MODE }}
         run: |
+          if [ "$EVENT" = push ]; then sleep 45; fi
           echo "event $EVENT, dispatch mode ${MODE:-range}, HEAD $(git rev-parse HEAD)"
-          if [ "$EVENT" != pull_request ] && [ "$MODE" = full ]; then
+          if [ "$EVENT" = push ] || { [ "$EVENT" != pull_request ] && [ "$MODE" = full ]; }; then
             code=true
           else
             files=$(git diff --name-only HEAD^1 HEAD)
@@ -61,6 +64,7 @@ jobs:
           ATTEMPT: ${{ github.run_attempt }}
         run: |
           sleep 5
+          if [ "$GITHUB_EVENT_NAME" = push ]; then echo "::error::the push run fails"; exit 1; fi
           if [ -f lab/fail.txt ]; then echo "::error::lab/fail.txt exists"; exit 1; fi
           if [ -f lab/flaky.txt ] && [ "$ATTEMPT" = 1 ]; then echo "::error::lab/flaky.txt fails on attempt 1"; exit 1; fi
           echo "passed on attempt $ATTEMPT"
