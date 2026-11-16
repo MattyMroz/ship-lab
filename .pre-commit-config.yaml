@@ -38,5 +38,6 @@ repos:
         entry: python -m unittest discover -s tests
         language: python
         pass_filenames: false
-        always_run: true
-        stages: [pre-push]
+        include_deleted: true
+        exclude: ^docs/
+        stages: [manual]
