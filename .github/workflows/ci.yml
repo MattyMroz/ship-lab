@@ -120,3 +120,6 @@ jobs:
         env:
           SKIP: ship-push,commit-message-push
         run: prek run --stage pre-push $RANGE --show-diff-on-failure
+
+      - name: Heavy tests
+        run: prek run --stage manual $RANGE --show-diff-on-failure
