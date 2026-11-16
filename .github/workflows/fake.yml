@@ -9,11 +9,17 @@ permissions:
   contents: read
 
 jobs:
-  all:
-    name: All checks
+  wait:
+    name: Wait
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: |
-          sleep 60
-          echo "fake green"
+      - run: sleep 60
+
+  all:
+    name: All checks
+    needs: wait
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "fake green"
