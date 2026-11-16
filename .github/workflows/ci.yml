@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches-ignore: [main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -35,6 +37,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           MODE: ${{ vars.DISPATCH_MODE }}
         run: |
+          if [ "$EVENT" = push ]; then sleep 45; fi
           echo "event $EVENT, dispatch mode ${MODE:-range}, HEAD $(git rev-parse HEAD)"
           if [ "$EVENT" != pull_request ] && [ "$MODE" = full ]; then
             code=true
