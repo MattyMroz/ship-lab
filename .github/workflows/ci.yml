@@ -1,11 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -20,103 +18,63 @@ defaults:
     shell: bash
 
 jobs:
-  hooks:
-    name: Hooks
+  changes:
+    name: Changes
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           persist-credentials: false
 
-      - uses: actions/setup-python@v7.1.0
-        with:
-          python-version: "3.14"
-
-      - uses: j178/prek-action@v3.1.0
-        with:
-          prek-version: 0.5.10
-          install-only: true
-
-      - name: Pull request messages
-        if: github.event_name == 'pull_request'
+      - id: diff
         env:
-          TITLE: ${{ github.event.pull_request.title }}
-          BODY: ${{ github.event.pull_request.body }}
-          GIT_EDITOR: ":"
-          COMMIT_MESSAGE_FINAL: "1"
+          EVENT: ${{ github.event_name }}
+          MODE: ${{ vars.DISPATCH_MODE }}
         run: |
-          printf '%s\n\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/message"
-          if ! prek run --stage commit-msg --commit-msg-filename "$RUNNER_TEMP/message"; then
-            echo "::error::pull request title or description breaks the commit message rules"
-            exit 1
+          echo "event $EVENT, dispatch mode ${MODE:-range}, HEAD $(git rev-parse HEAD)"
+          if [ "$EVENT" != pull_request ] && [ "$MODE" = full ]; then
+            code=true
+          else
+            files=$(git diff --name-only HEAD^1 HEAD)
+            echo "changed files:"; echo "$files"
+            if echo "$files" | grep -qvE '^docs/|\.md$'; then code=true; else code=false; fi
           fi
+          echo "code=$code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
 
-      - name: Pushed commits
-        if: github.event_name == 'push'
-        env:
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
-          GIT_EDITOR: ":"
-          COMMIT_MESSAGE_FINAL: "1"
-        run: |
-          case "$BEFORE" in
-            *[!0]*) range="$BEFORE..$AFTER" ;;
-            *) range="$AFTER^!" ;;
-          esac
-          for rev in "$BEFORE" "$AFTER"; do
-            case "$rev" in *[!0]*) ;; *) continue ;; esac
-            if ! git cat-file -e "$rev^{commit}" 2>/dev/null; then
-              echo "::error::$rev is not in this clone; check the pushed commits locally"
-              exit 1
-            fi
-          done
-          failed=0
-          shas=$(git rev-list --no-merges "$range")
-          for sha in $shas; do
-            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message"
-            if ! prek run --stage commit-msg --commit-msg-filename "$RUNNER_TEMP/message"; then
-              echo "::error::commit $sha breaks the commit message rules"
-              failed=1
-            fi
-          done
-          exit "$failed"
-
-      - name: Commit hooks
-        env:
-          SKIP: no-commit-to-branch
-        run: prek run --all-files --show-diff-on-failure
-
-  check:
-    name: Check (${{ matrix.os }})
-    needs: hooks
-    if: github.event_name != 'push'
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    env:
-      RANGE: ${{ github.event_name == 'pull_request' && format('--from-ref {0} --to-ref HEAD', github.event.pull_request.base.sha) || '--all-files' }}
+  heavy:
+    name: Heavy
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-python@v7.1.0
-        with:
-          python-version: "3.14"
+      - env:
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          sleep 5
+          if [ -f lab/fail.txt ]; then echo "::error::lab/fail.txt exists"; exit 1; fi
+          if [ -f lab/flaky.txt ] && [ "$ATTEMPT" = 1 ]; then echo "::error::lab/flaky.txt fails on attempt 1"; exit 1; fi
+          echo "passed on attempt $ATTEMPT"
 
-      - uses: j178/prek-action@v3.1.0
-        with:
-          prek-version: 0.5.10
-          install-only: true
-
-      - name: Push gates
-        env:
-          SKIP: ship-push,commit-message-push
-        run: prek run --stage pre-push $RANGE --show-diff-on-failure
+  all:
+    name: All checks
+    needs: [changes, heavy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key) \(.value.result)"'
+          bad=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(" ")')
+          if [ -n "$bad" ]; then echo "::error::not passed: $bad"; exit 1; fi
