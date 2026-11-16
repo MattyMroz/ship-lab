@@ -435,7 +435,7 @@ def commits(*rev_args: str) -> list[tuple[str, int, str, str]]:
         ["git", "log", "--reverse", LOG_FORMAT, *rev_args], capture_output=True, check=False
     )
     if run.returncode != 0:
-        raise GitError(run.stderr.decode("utf-8", errors="replace").strip())
+        raise GitError(f"{run.stderr.decode('utf-8', errors='replace').strip()}: fetch the remote and push again")
     result: list[tuple[str, int, str, str]] = []
     for record in run.stdout.decode("utf-8", errors="replace").split(RECORD_SEPARATOR):
         fields: list[str] = record.strip("\n").split(FIELD_SEPARATOR, 3)
@@ -622,7 +622,7 @@ def check_push(stdin: str, scopes: tuple[str, ...]) -> list[str]:
     try:
         return check_pre_push(push, scopes)
     except GitError as failure:
-        return [f"git: cannot read the commits to check ({failure}): fetch the remote and push again"]
+        return [f"git: cannot read the commits to check: {failure}"]
 
 
 def main(argv: list[str] | None = None) -> int:
