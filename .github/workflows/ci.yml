@@ -22,7 +22,7 @@ defaults:
 jobs:
   hooks:
     name: Hooks
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -38,6 +38,11 @@ jobs:
         with:
           prek-version: 0.5.10
           install-only: true
+
+      # - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
+      #   with:
+      #     components: rustfmt
+      #     cache: false
 
       - name: Pull request messages
         if: github.event_name == 'pull_request'
@@ -85,19 +90,19 @@ jobs:
 
       - name: Commit hooks
         env:
-          SKIP: no-commit-to-branch
+          SKIP: no-commit-to-branch,changed-tests,changed-tests-bun,changed-tests-rust
         run: prek run --all-files --show-diff-on-failure
 
   check:
     name: Check (${{ matrix.os }})
-    needs: hooks
     if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
         os:
           - ubuntu-latest
-    runs-on: ${{ matrix.os }}
+          # - windows-latest
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && vars.CI_RUNNER_LINUX || matrix.os == 'windows-latest' && vars.CI_RUNNER_WINDOWS || matrix.os }}
     timeout-minutes: 30
     env:
       RANGE: ${{ github.event_name == 'pull_request' && format('--from-ref {0} --to-ref HEAD', github.event.pull_request.base.sha) || '--all-files' }}
@@ -116,6 +121,30 @@ jobs:
           prek-version: 0.5.10
           install-only: true
 
+      # - uses: astral-sh/setup-uv@v10.3.3
+
+      # - name: Python dependencies
+      #   run: uv sync --locked
+
+      # - uses: oven-sh/setup-bun@v2
+
+      # - uses: actions/cache@v6
+      #   with:
+      #     path: ~/.bun/install/cache
+      #     key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      # - name: Bun dependencies
+      #   run: bun install --frozen-lockfile
+
+      # - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
+      #   with:
+      #     components: clippy
+
+      # - name: Rust dependencies
+      #   run: cargo fetch --locked
+
+      # Next language: add its setup and dependency steps above this line.
+
       - name: Push gates
         env:
           SKIP: ship-push,commit-message-push
@@ -123,3 +152,14 @@ jobs:
 
       - name: Heavy tests
         run: prek run --stage manual $RANGE --show-diff-on-failure
+
+      # - name: Dependency audit
+      #   run: |
+      #     uv export --locked --all-groups --no-emit-project --format requirements.txt --output-file "$RUNNER_TEMP/requirements.txt"
+      #     sed -E -i 's/^([A-Za-z0-9._-]+==[^ ;+]+)\+[^ ;]+/\1/' "$RUNNER_TEMP/requirements.txt"
+      #     uvx pip-audit@2.10.1 --requirement "$RUNNER_TEMP/requirements.txt" --disable-pip --strict --progress-spinner off
+
+      # - name: Bun dependency audit
+      #   run: bun audit
+
+      # Rust has no dependency audit here: cargo audit is a separate install and reads the RustSec database from GitHub.

@@ -11,7 +11,15 @@ from typing import Final
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 TYPES: Final[tuple[str, ...]] = (
-    "feat", "fix", "perf", "refactor", "test", "docs", "build", "ci", "revert",
+    "feat",
+    "fix",
+    "perf",
+    "refactor",
+    "test",
+    "docs",
+    "build",
+    "ci",
+    "revert",
 )
 """The nine allowed types."""
 
@@ -83,9 +91,7 @@ UNSAFE_STARTS: Final[tuple[str, ...]] = ("#", "---", "diff -", "Index: ")
 BREAKING_MARK: Final[re.Pattern[str]] = re.compile(r"(?:\* |- )?breaking[ -]change\s*:", re.IGNORECASE)
 """A breaking change marker that changelog tools read anywhere in the body."""
 
-ISSUE_TRAILER: Final[re.Pattern[str]] = re.compile(
-    r"(?:Closes|Refs): (?:#\d+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+)"
-)
+ISSUE_TRAILER: Final[re.Pattern[str]] = re.compile(r"(?:Closes|Refs): (?:#\d+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+)")
 """The Closes and Refs trailers."""
 
 BREAKING_TRAILER: Final[re.Pattern[str]] = re.compile(r"BREAKING-CHANGE: \S.*")
@@ -115,8 +121,7 @@ REVERT_LINE: Final[re.Pattern[str]] = re.compile(r"- revert commit (?:[0-9a-f]{4
 """The first item of Change: in a revert."""
 
 ALLOWED_TRAILERS: Final[str] = (
-    "Closes: #<number>, Refs: #<number>, BREAKING-CHANGE: <text>, Signed-off-by: <name> <email> "
-    "or the cherry-pick line"
+    "Closes: #<number>, Refs: #<number>, BREAKING-CHANGE: <text>, Signed-off-by: <name> <email> or the cherry-pick line"
 )
 """The trailer list quoted in trailers errors."""
 
@@ -173,11 +178,13 @@ def check_header(header: str, scopes: tuple[str, ...]) -> tuple[list[str], re.Ma
     header = SQUASH_SUFFIX.sub("", header)
     match: re.Match[str] | None = HEADER.fullmatch(header)
     if not match:
-        return [(
-            f"header: the header {header!r} is not '<type>(<scope>): <summary>': "
-            "write a type, a scope in parentheses, ': ' and the summary, "
-            "for example 'fix(parser): keep the last line'"
-        )], None
+        return [
+            (
+                f"header: the header {header!r} is not '<type>(<scope>): <summary>': "
+                "write a type, a scope in parentheses, ': ' and the summary, "
+                "for example 'fix(parser): keep the last line'"
+            )
+        ], None
     errors: list[str] = []
     kind: str = match.group("type")
     scope: str | None = match.group("scope")
@@ -321,7 +328,9 @@ def git_trailers(message: str) -> list[str]:
     """Return the trailers git finds in the message."""
     run: subprocess.CompletedProcess[bytes] = subprocess.run(
         ["git", "interpret-trailers", "--parse", "--no-divider"],
-        input=message.encode("utf-8"), capture_output=True, check=True,
+        input=message.encode("utf-8"),
+        capture_output=True,
+        check=True,
     )
     return [line.rstrip() for line in run.stdout.decode("utf-8").splitlines() if line.strip()]
 
@@ -381,10 +390,12 @@ def check_header_lines(paragraph: list[str]) -> list[str]:
     """Check that the header paragraph is one line."""
     if len(paragraph) == 1:
         return []
-    return [(
-        f"header: the header continues on the next line {paragraph[1]!r}: keep the header on one line "
-        "and leave one empty line after it"
-    )]
+    return [
+        (
+            f"header: the header continues on the next line {paragraph[1]!r}: keep the header on one line "
+            "and leave one empty line after it"
+        )
+    ]
 
 
 def check(raw: str, scopes: tuple[str, ...] = (), *, scissors: bool = False, final: bool = False) -> list[str]:
@@ -593,8 +604,10 @@ def check_message_file(message_file: str, scopes: tuple[str, ...]) -> list[str]:
     if not final and merge_in_progress():
         lines: list[str] = normalize(raw, scissors=edited)
         return check_attribution(lines + inner_lines(lines))
-    if edited and git_output("config", "commit.cleanup") != "scissors" and any(
-        line.startswith("#") for line in raw.splitlines()
+    if (
+        edited
+        and git_output("config", "commit.cleanup") != "scissors"
+        and any(line.startswith("#") for line in raw.splitlines())
     ):
         return [
             (
