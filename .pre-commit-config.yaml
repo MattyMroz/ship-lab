@@ -40,7 +40,7 @@ repos:
         stages: [pre-commit]
       # - id: check-json
       #   exclude: (^|/)\.vscode/|(tsconfig[^/]*|biome)\.json$
-      # - id: check-toml
+      - id: check-toml
       # - id: check-symlinks
       - id: check-ast
       - id: debug-statements
