@@ -9,7 +9,15 @@ from typing import Final
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 TYPES: Final[tuple[str, ...]] = (
-    "feat", "fix", "perf", "refactor", "test", "docs", "build", "ci", "revert",
+    "feat",
+    "fix",
+    "perf",
+    "refactor",
+    "test",
+    "docs",
+    "build",
+    "ci",
+    "revert",
 )
 """The types of the commit standard, which also start a branch name."""
 
